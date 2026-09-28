@@ -12,6 +12,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.smsmanager.data.SmsRepository
@@ -33,17 +36,31 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var hasRequiredAccess by remember { mutableStateOf(checkAccess()) }
+                val lifecycleOwner = LocalLifecycleOwner.current
+
+                // This forces the screen to refresh the moment the permission popup closes
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            hasRequiredAccess = checkAccess()
+                            if (hasRequiredAccess) {
+                                viewModel.loadData()
+                            }
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
                 val permissionsLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions(),
                     onResult = { perms ->
                         if (perms[Manifest.permission.READ_SMS] == true) {
-                            requestDefaultSmsRole { hasRequiredAccess = checkAccess() }
+                            requestDefaultSmsRole()
                         }
                     }
                 )
-                LaunchedEffect(hasRequiredAccess) {
-                    if (hasRequiredAccess) viewModel.loadData()
-                }
+
                 SmsScreen(
                     viewModel = viewModel,
                     hasPermissions = hasRequiredAccess,
@@ -54,6 +71,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
     private fun checkAccess(): Boolean {
         val hasRead = checkSelfPermission(Manifest.permission.READ_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val isDefault = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -63,7 +81,8 @@ class MainActivity : ComponentActivity() {
         }
         return hasRead && isDefault
     }
-    private fun requestDefaultSmsRole(onComplete: () -> Unit) {
+
+    private fun requestDefaultSmsRole() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val rm = getSystemService(RoleManager::class.java)
             if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_SMS) && !rm.isRoleHeld(RoleManager.ROLE_SMS)) {
@@ -76,6 +95,5 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, 1001)
         }
-        onComplete()
     }
 }
