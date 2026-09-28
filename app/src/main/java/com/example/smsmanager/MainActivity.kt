@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.provider.Telephony
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
@@ -18,13 +19,11 @@ import com.example.smsmanager.ui.SmsScreen
 import com.example.smsmanager.ui.SmsViewModel
 
 class MainActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Safe initialization to avoid missing library crashes
         val repository = SmsRepository(applicationContext)
         val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return SmsViewModel(repository) as T
             }
@@ -34,59 +33,47 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var hasRequiredAccess by remember { mutableStateOf(checkAccess()) }
-                
                 val permissionsLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestMultiplePermissions()
-                ) { perms ->
-                    if (perms[Manifest.permission.READ_SMS] == true) {
-                        requestDefaultSmsRole { hasRequiredAccess = checkAccess() }
+                    contract = ActivityResultContracts.RequestMultiplePermissions(),
+                    onResult = { perms ->
+                        if (perms[Manifest.permission.READ_SMS] == true) {
+                            requestDefaultSmsRole { hasRequiredAccess = checkAccess() }
+                        }
                     }
-                }
-
+                )
                 LaunchedEffect(hasRequiredAccess) {
-                    if (hasRequiredAccess) {
-                        viewModel.loadData()
-                    }
+                    if (hasRequiredAccess) viewModel.loadData()
                 }
-
                 SmsScreen(
                     viewModel = viewModel,
                     hasPermissions = hasRequiredAccess,
                     onRequestPermissions = {
-                        permissionsLauncher.launch(arrayOf(
-                            Manifest.permission.READ_SMS,
-                            Manifest.permission.READ_CONTACTS
-                        ))
+                        permissionsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.READ_CONTACTS))
                     }
                 )
             }
         }
     }
-
     private fun checkAccess(): Boolean {
-        val hasReadPermission = checkSelfPermission(Manifest.permission.READ_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        
-        val isDefaultSms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = getSystemService(RoleManager::class.java)
-            roleManager.isRoleHeld(RoleManager.ROLE_SMS)
+        val hasRead = checkSelfPermission(Manifest.permission.READ_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val isDefault = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_SMS) == true
         } else {
-            val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this)
-            defaultSmsPackage == packageName
+            Telephony.Sms.getDefaultSmsPackage(this) == packageName
         }
-        
-        return hasReadPermission && isDefaultSms
+        return hasRead && isDefault
     }
-
     private fun requestDefaultSmsRole(onComplete: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = getSystemService(RoleManager::class.java)
-            if (roleManager.isRoleAvailable(RoleManager.ROLE_SMS) && !roleManager.isRoleHeld(RoleManager.ROLE_SMS)) {
-                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_SMS)
-                startActivityForResult(intent, 1001) 
+            val rm = getSystemService(RoleManager::class.java)
+            if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_SMS) && !rm.isRoleHeld(RoleManager.ROLE_SMS)) {
+                @Suppress("DEPRECATION")
+                startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_SMS), 1001)
             }
         } else {
             val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
             intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
+            @Suppress("DEPRECATION")
             startActivityForResult(intent, 1001)
         }
         onComplete()

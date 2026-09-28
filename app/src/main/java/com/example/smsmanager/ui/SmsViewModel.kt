@@ -15,7 +15,6 @@ sealed class SmsUiState {
 }
 
 class SmsViewModel(private val repository: SmsRepository) : ViewModel() {
-
     private val _uiState = MutableStateFlow<SmsUiState>(SmsUiState.Loading)
     val uiState: StateFlow<SmsUiState> = _uiState
 
@@ -26,22 +25,20 @@ class SmsViewModel(private val repository: SmsRepository) : ViewModel() {
                 val stats = repository.getFrequentSenders(days)
                 _uiState.value = SmsUiState.Success(stats)
             } catch (e: Exception) {
-                _uiState.value = SmsUiState.Error(e.message ?: "Unknown error occurred")
+                _uiState.value = SmsUiState.Error(e.message ?: "Unknown error")
             }
         }
     }
-
     fun markAllAsRead() {
         viewModelScope.launch {
             repository.markAllAsRead()
-            loadData() // Refresh list after updating
+            loadData()
         }
     }
-
     fun deleteSender(address: String) {
         viewModelScope.launch {
             repository.deleteMessagesBySender(address)
-            loadData() // Refresh list after deleting
+            loadData()
         }
     }
 }
