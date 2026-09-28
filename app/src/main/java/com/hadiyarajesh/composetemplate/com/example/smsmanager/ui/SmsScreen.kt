@@ -6,7 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,7 +55,7 @@ fun SmsScreen(
                                 .fillMaxWidth()
                                 .padding(16.dp)
                         ) {
-                            Icon(Icons.Default.DoneAll, contentDescription = null)
+                            Icon(Icons.Default.Check, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Mark All Unread as Read")
                         }
@@ -74,7 +74,6 @@ fun SmsScreen(
         }
     }
 
-    // Deletion Confirmation Dialog
     senderToDelete?.let { sender ->
         AlertDialog(
             onDismissRequest = { senderToDelete = null },
