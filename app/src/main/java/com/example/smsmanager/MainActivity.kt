@@ -8,13 +8,12 @@ import android.os.Bundle
 import android.provider.Telephony
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.smsmanager.data.SmsRepository
@@ -22,8 +21,14 @@ import com.example.smsmanager.ui.SmsScreen
 import com.example.smsmanager.ui.SmsViewModel
 
 class MainActivity : ComponentActivity() {
+    
+    // We moved this out here so the screen can force-refresh itself at any time
+    private var hasRequiredAccess by mutableStateOf(false)
+    private lateinit var viewModel: SmsViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
         val repository = SmsRepository(applicationContext)
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -31,44 +36,66 @@ class MainActivity : ComponentActivity() {
                 return SmsViewModel(repository) as T
             }
         }
-        val viewModel = ViewModelProvider(this, factory)[SmsViewModel::class.java]
+        viewModel = ViewModelProvider(this, factory)[SmsViewModel::class.java]
+
+        val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            hasRequiredAccess = checkAccess()
+            if (hasRequiredAccess) viewModel.loadData()
+        }
+
+        val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms ->
+            if (perms[Manifest.permission.READ_SMS] == true) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val rm = getSystemService(RoleManager::class.java)
+                    if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_SMS) && !rm.isRoleHeld(RoleManager.ROLE_SMS)) {
+                        roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_SMS))
+                    } else {
+                        hasRequiredAccess = checkAccess()
+                    }
+                } else {
+                    val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+                    intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
+                    roleLauncher.launch(intent)
+                }
+            }
+        }
 
         setContent {
             MaterialTheme {
-                var hasRequiredAccess by remember { mutableStateOf(checkAccess()) }
-                val lifecycleOwner = LocalLifecycleOwner.current
-
-                // This forces the screen to refresh the moment the permission popup closes
-                DisposableEffect(lifecycleOwner) {
-                    val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) {
-                            hasRequiredAccess = checkAccess()
-                            if (hasRequiredAccess) {
-                                viewModel.loadData()
-                            }
-                        }
-                    }
-                    lifecycleOwner.lifecycle.addObserver(observer)
-                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                LaunchedEffect(hasRequiredAccess) {
+                    if (hasRequiredAccess) viewModel.loadData()
                 }
-
-                val permissionsLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.RequestMultiplePermissions(),
-                    onResult = { perms ->
-                        if (perms[Manifest.permission.READ_SMS] == true) {
-                            requestDefaultSmsRole()
-                        }
-                    }
-                )
 
                 SmsScreen(
                     viewModel = viewModel,
                     hasPermissions = hasRequiredAccess,
                     onRequestPermissions = {
-                        permissionsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.READ_CONTACTS))
+                        if (checkSelfPermission(Manifest.permission.READ_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                val rm = getSystemService(RoleManager::class.java)
+                                if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_SMS) && !rm.isRoleHeld(RoleManager.ROLE_SMS)) {
+                                    roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_SMS))
+                                }
+                            } else {
+                                val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+                                intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
+                                roleLauncher.launch(intent)
+                            }
+                        } else {
+                            permissionsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.READ_CONTACTS))
+                        }
                     }
                 )
             }
+        }
+    }
+
+    // THE MAGIC FIX: Automatically checks permissions and refreshes the UI every time a pop-up closes
+    override fun onResume() {
+        super.onResume()
+        hasRequiredAccess = checkAccess()
+        if (hasRequiredAccess) {
+            viewModel.loadData()
         }
     }
 
@@ -80,20 +107,5 @@ class MainActivity : ComponentActivity() {
             Telephony.Sms.getDefaultSmsPackage(this) == packageName
         }
         return hasRead && isDefault
-    }
-
-    private fun requestDefaultSmsRole() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val rm = getSystemService(RoleManager::class.java)
-            if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_SMS) && !rm.isRoleHeld(RoleManager.ROLE_SMS)) {
-                @Suppress("DEPRECATION")
-                startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_SMS), 1001)
-            }
-        } else {
-            val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
-            intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
-            @Suppress("DEPRECATION")
-            startActivityForResult(intent, 1001)
-        }
     }
 }
