@@ -11,11 +11,11 @@ plugins {
 }
 
 android {
-    namespace = "com.hadiyarajesh.composetemplate"
+    namespace = "com.example.smsmanager"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.hadiyarajesh.composetemplate"
+        applicationId = "com.example.smsmanager"
         minSdk = 23
         targetSdk = 36
         versionCode = 1
